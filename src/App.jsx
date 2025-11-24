@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ShieldCheck, ShieldAlert, Check, X, ChevronRight, AlertTriangle, Loader2, MapPin, User, Calendar } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, Check, X, ChevronRight, AlertTriangle, Loader2, MapPin, User, Calendar, RefreshCw } from 'lucide-react';
 
 // --- UTILITIES (Unchanged) ---
 const normalizePostcode = (pc) => pc ? pc.replace(/\s+/g, '').toUpperCase() : '';
@@ -78,16 +78,32 @@ const performMatching = (regData, jumioData) => {
 
 // --- APP COMPONENT ---
 export default function App() {
-  const [step, setStep] = useState(1);
+  // Load initial state from localStorage if available
+  const savedStep = parseInt(localStorage.getItem('jumio_step') || '1');
+  const savedReg = JSON.parse(localStorage.getItem('jumio_reg') || '{"firstName":"","lastName":"","dob":"","houseNo":"","street":"","flat":"","postcode":"","city":""}');
+
+  const [step, setStep] = useState(savedStep);
+  const [regData, setRegData] = useState(savedReg);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   
-  const [regData, setRegData] = useState({ 
-    firstName: '', lastName: '', dob: '', houseNo: '', street: '', flat: '', postcode: '', city: ''
-  });
-
   const [matchReport, setMatchReport] = useState(null);
   const jumioContainerRef = useRef(null);
+
+  // Save state whenever it changes
+  useEffect(() => {
+    localStorage.setItem('jumio_step', step.toString());
+    localStorage.setItem('jumio_reg', JSON.stringify(regData));
+  }, [step, regData]);
+
+  const resetFlow = () => {
+    localStorage.removeItem('jumio_step');
+    localStorage.removeItem('jumio_reg');
+    setStep(1);
+    setRegData({ firstName: '', lastName: '', dob: '', houseNo: '', street: '', flat: '', postcode: '', city: '' });
+    setError(null);
+    window.location.reload();
+  };
 
   const startJumio = async () => {
     setLoading(true);
@@ -109,13 +125,12 @@ export default function App() {
       const scanRef = data.transactionReference;
 
       // 2. INITIALIZE JUMIO
+      // Check if script loaded
       if (window.JumioClient) {
         new window.JumioClient(jumioContainerRef.current)
           .init({
             authorizationToken: data.authorizationToken, 
             datacenter: 'EU', 
-            // If EU fails, try adding this line:
-            // webServicesUrl: 'https://emea-1.jumio.ai', 
             success: (payload) => { fetchJumioData(scanRef); },
             error: (payload) => { 
               console.error(payload);
@@ -124,7 +139,7 @@ export default function App() {
             }
           });
       } else {
-        throw new Error("Jumio script not loaded. Refreshing page might help.");
+        throw new Error("Jumio script failed to load from CDN. Please check your network or index.html link.");
       }
     } catch (err) {
       console.error(err);
@@ -147,14 +162,32 @@ export default function App() {
     }
   };
 
+  // Auto-start Jumio if we refreshed on Step 3
+  useEffect(() => {
+    if (step === 3 && !loading && !error && !matchReport) {
+      // Small delay to ensure DOM is ready
+      const timer = setTimeout(() => startJumio(), 500);
+      return () => clearTimeout(timer);
+    }
+  }, [step]); // Only run when entering step 3
+
   return (
     <div className="min-h-screen bg-gray-50 text-gray-800 font-sans selection:bg-green-100">
       <header className="bg-white border-b py-4 px-6 flex justify-between items-center sticky top-0 z-50">
-        <div className="font-bold text-xl">Jumio<span className="text-green-600">Flow</span></div>
+        <div className="flex items-center gap-4">
+            <div className="font-bold text-xl">Jumio<span className="text-green-600">Flow</span></div>
+            {step > 1 && (
+                <button onClick={resetFlow} className="text-xs flex items-center gap-1 text-gray-400 hover:text-gray-600">
+                    <RefreshCw size={12} /> Reset
+                </button>
+            )}
+        </div>
         <div className="text-xs bg-gray-100 px-2 py-1 rounded">Step: {step}</div>
       </header>
       
       <main className="max-w-xl mx-auto p-6 mt-8">
+        
+        {/* --- STEP 1: REGISTER --- */}
         {step === 1 && (
           <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
             <h1 className="text-2xl font-bold mb-6 text-gray-900">Register</h1>
@@ -192,7 +225,12 @@ export default function App() {
             <div className="p-4 min-h-[500px] flex flex-col items-center justify-center bg-gray-50">
               <div ref={jumioContainerRef} className="w-full"></div>
               {loading && !error && (<div className="text-center"><Loader2 className="animate-spin text-green-600 mx-auto mb-2" size={32} /> <p className="text-gray-500 text-sm">Initializing Secure Environment...</p></div>)}
-              {error && <div className="text-red-500 font-bold bg-red-50 p-6 rounded-xl border border-red-100">{error}</div>}
+              {error && (
+                  <div className="max-w-md mx-auto">
+                    <div className="text-red-500 font-bold bg-red-50 p-6 rounded-xl border border-red-100 mb-4">{error}</div>
+                    <button onClick={() => window.location.reload()} className="text-sm text-gray-500 underline">Reload Page</button>
+                  </div>
+              )}
             </div>
           </div>
         )}
@@ -202,7 +240,7 @@ export default function App() {
             <h2 className="text-2xl font-bold text-center mb-2">{matchReport.passed ? 'Verification Passed' : 'Verification Failed'}</h2>
             <p className="text-center text-gray-400 text-sm mb-8">Detailed logic breakdown</p>
             <div className="space-y-3">{matchReport.checks.map((check, i) => (<div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-100"><span className="font-medium text-sm text-gray-700">{check.field}</span><div className="text-right"><div className={`text-sm font-bold ${check.match ? 'text-green-600' : 'text-red-600'}`}>{check.match ? 'Pass' : 'Fail'}</div><div className="text-xs text-gray-400">{check.message}</div></div></div>))}</div>
-            <button onClick={() => window.location.reload()} className="mt-8 w-full border border-gray-200 text-gray-600 py-3 rounded-xl font-bold hover:bg-gray-50 transition">Start Again</button>
+            <button onClick={resetFlow} className="mt-8 w-full border border-gray-200 text-gray-600 py-3 rounded-xl font-bold hover:bg-gray-50 transition">Start Again</button>
           </div>
         )}
       </main>
