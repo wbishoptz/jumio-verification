@@ -37,21 +37,17 @@ const calculateSimilarity = (str1, str2) => {
 
 // --- MATCHING LOGIC ---
 const performMatching = (regData, jumioData) => {
-  // 1. Prepare Jumio Data
   const docData = {
     firstName: jumioData.document?.firstName || '',
     lastName: jumioData.document?.lastName || '',
     dob: jumioData.document?.dob || '', 
     postcode: jumioData.document?.address?.postalCode || '',
-    // Jumio returns address parts. We try to grab the full line, or combine parts
     addressLine: jumioData.document?.address?.line1 || '', 
     city: jumioData.document?.address?.city || '',
     type: jumioData.document?.type || 'UNKNOWN',
     country: jumioData.document?.issuingCountry || 'UNKNOWN'
   };
 
-  // 2. Prepare User Registration Data
-  // We combine House No + Street to compare against the Doc's "Line 1"
   const regFullAddress = `${regData.houseNo} ${regData.street}`.trim();
 
   const report = { passed: false, checks: [] };
@@ -89,7 +85,6 @@ const performMatching = (regData, jumioData) => {
   });
 
   // --- CHECK 5: Address (Fuzzy > 70%) ---
-  // Comparing "10 Downing St" (User) vs "10 Downing Street" (Doc)
   const adSim = calculateSimilarity(regFullAddress, docData.addressLine);
   const adMatch = adSim >= 70;
   report.checks.push({
@@ -98,14 +93,12 @@ const performMatching = (regData, jumioData) => {
   });
 
   // --- CHECK 6: City (Fuzzy > 80%) ---
-  // Optional but good to check
   const citySim = calculateSimilarity(regData.city, docData.city);
   const cityMatch = citySim >= 80;
   report.checks.push({
     field: 'City', reg: regData.city, doc: docData.city, match: cityMatch,
     message: `Similarity: ${citySim.toFixed(0)}%`
   });
-
 
   // --- CHECK 7: Document Rules ---
   let docValid = true;
@@ -124,7 +117,6 @@ const performMatching = (regData, jumioData) => {
     });
   }
 
-  // Final Pass Requirement
   report.passed = dobMatch && pcMatch && lnMatch && fnMatch && adMatch && docValid;
   return report;
 };
@@ -135,16 +127,8 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   
-  // Updated State for new Address Fields
   const [regData, setRegData] = useState({ 
-    firstName: '', 
-    lastName: '', 
-    dob: '', 
-    houseNo: '',
-    street: '',
-    flat: '',
-    postcode: '',
-    city: ''
+    firstName: '', lastName: '', dob: '', houseNo: '', street: '', flat: '', postcode: '', city: ''
   });
 
   const [matchReport, setMatchReport] = useState(null);
@@ -154,23 +138,27 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      // CALL REAL BACKEND
+      // 1. CALL REAL BACKEND
       const response = await fetch('/api/jumio', { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userEmail: 'user_test_01' })
       });
       
-      if (!response.ok) throw new Error("Could not connect to Jumio backend.");
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || "Backend connection failed.");
+      }
       
       const data = await response.json();
       const scanRef = data.transactionReference;
 
+      // 2. INITIALIZE JUMIO
       if (window.JumioClient) {
         new window.JumioClient(jumioContainerRef.current)
           .init({
             authorizationToken: data.authorizationToken, 
-            datacenter: 'US', // CHANGE TO 'EU' IF NEEDED
+            datacenter: 'EU', // <--- IMPORTANT: EU Datacenter for UK
             success: (payload) => { fetchJumioData(scanRef); },
             error: (payload) => { 
               console.error(payload);
@@ -178,6 +166,8 @@ export default function App() {
               setLoading(false);
             }
           });
+      } else {
+        throw new Error("Jumio script not loaded (404 Error). Check index.html");
       }
     } catch (err) {
       console.error(err);
@@ -213,9 +203,7 @@ export default function App() {
         {step === 1 && (
           <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
             <h1 className="text-2xl font-bold mb-6 text-gray-900">Register</h1>
-            
             <div className="space-y-5">
-              {/* Name Section */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-gray-500 uppercase">First Name</label>
@@ -228,8 +216,6 @@ export default function App() {
                     value={regData.lastName} onChange={e => setRegData({...regData, lastName: e.target.value})} />
                 </div>
               </div>
-
-              {/* DOB */}
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-gray-500 uppercase">Date of Birth</label>
                 <div className="relative">
@@ -238,53 +224,38 @@ export default function App() {
                   <Calendar className="absolute right-3 top-3 text-gray-400 pointer-events-none" size={18} />
                 </div>
               </div>
-
               <div className="border-t border-gray-100 my-4"></div>
-
-              {/* Address Row 1: No + Street */}
               <div className="flex gap-4">
                 <div className="w-1/4 space-y-1">
                   <label className="text-xs font-semibold text-gray-500 uppercase">No</label>
-                  <input type="text" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none" 
-                    placeholder="10"
+                  <input type="text" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none" placeholder="10"
                     value={regData.houseNo} onChange={e => setRegData({...regData, houseNo: e.target.value})} />
                 </div>
                 <div className="w-3/4 space-y-1">
                   <label className="text-xs font-semibold text-gray-500 uppercase">Street</label>
-                  <input type="text" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none" 
-                    placeholder="Downing Street"
+                  <input type="text" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none" placeholder="Downing Street"
                     value={regData.street} onChange={e => setRegData({...regData, street: e.target.value})} />
                 </div>
               </div>
-
-              {/* Address Row 2: Flat Number */}
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-gray-500 uppercase">Flat number</label>
-                <input type="text" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none" 
-                  placeholder="Apt 4B (Optional)"
+                <input type="text" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none" placeholder="Apt 4B (Optional)"
                   value={regData.flat} onChange={e => setRegData({...regData, flat: e.target.value})} />
               </div>
-
-              {/* Address Row 3: Postcode + City */}
               <div className="flex gap-4">
                 <div className="w-1/3 space-y-1">
                   <label className="text-xs font-semibold text-gray-500 uppercase">Postcode</label>
-                  <input type="text" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none" 
-                    placeholder="SW1A 2AA"
+                  <input type="text" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none" placeholder="SW1A 2AA"
                     value={regData.postcode} onChange={e => setRegData({...regData, postcode: e.target.value})} />
                 </div>
                 <div className="w-2/3 space-y-1">
                   <label className="text-xs font-semibold text-gray-500 uppercase">City</label>
-                  <input type="text" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none" 
-                    placeholder="London"
+                  <input type="text" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none" placeholder="London"
                     value={regData.city} onChange={e => setRegData({...regData, city: e.target.value})} />
                 </div>
               </div>
-
             </div>
-
-            <button onClick={() => setStep(2)} 
-              disabled={!regData.postcode || !regData.street || !regData.houseNo} 
+            <button onClick={() => setStep(2)} disabled={!regData.postcode || !regData.street || !regData.houseNo} 
               className="mt-8 w-full bg-green-600 text-white py-4 rounded-xl font-bold hover:bg-green-700 shadow-lg shadow-green-100 transition disabled:opacity-50 disabled:cursor-not-allowed">
               Next Step
             </button>
@@ -332,7 +303,6 @@ export default function App() {
             </div>
             <h2 className="text-2xl font-bold text-center mb-2">{matchReport.passed ? 'Verification Passed' : 'Verification Failed'}</h2>
             <p className="text-center text-gray-400 text-sm mb-8">Detailed logic breakdown</p>
-            
             <div className="space-y-3">
               {matchReport.checks.map((check, i) => (
                 <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-100">
@@ -346,13 +316,11 @@ export default function App() {
                 </div>
               ))}
             </div>
-
             <button onClick={() => window.location.reload()} className="mt-8 w-full border border-gray-200 text-gray-600 py-3 rounded-xl font-bold hover:bg-gray-50 transition">
               Start Again
             </button>
           </div>
         )}
-
       </main>
     </div>
   );
