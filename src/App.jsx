@@ -78,7 +78,6 @@ const performMatching = (regData, jumioData) => {
 
 // --- APP COMPONENT ---
 export default function App() {
-  // Load initial state from localStorage if available
   const savedStep = parseInt(localStorage.getItem('jumio_step') || '1');
   const savedReg = JSON.parse(localStorage.getItem('jumio_reg') || '{"firstName":"","lastName":"","dob":"","houseNo":"","street":"","flat":"","postcode":"","city":""}');
 
@@ -90,7 +89,6 @@ export default function App() {
   const [matchReport, setMatchReport] = useState(null);
   const jumioContainerRef = useRef(null);
 
-  // Save state whenever it changes
   useEffect(() => {
     localStorage.setItem('jumio_step', step.toString());
     localStorage.setItem('jumio_reg', JSON.stringify(regData));
@@ -125,12 +123,13 @@ export default function App() {
       const scanRef = data.transactionReference;
 
       // 2. INITIALIZE JUMIO
-      // Check if script loaded
       if (window.JumioClient) {
         new window.JumioClient(jumioContainerRef.current)
           .init({
             authorizationToken: data.authorizationToken, 
             datacenter: 'EU', 
+            // Explicitly point to your domain including the /web/ path
+            webServicesUrl: 'https://lottoland1.web.emea-1.jumio.ai/web/',
             success: (payload) => { fetchJumioData(scanRef); },
             error: (payload) => { 
               console.error(payload);
@@ -139,7 +138,7 @@ export default function App() {
             }
           });
       } else {
-        throw new Error("Jumio script failed to load from CDN. Please check your network or index.html link.");
+        throw new Error("Jumio script failed to load. Check your network or domain settings.");
       }
     } catch (err) {
       console.error(err);
@@ -162,14 +161,12 @@ export default function App() {
     }
   };
 
-  // Auto-start Jumio if we refreshed on Step 3
   useEffect(() => {
     if (step === 3 && !loading && !error && !matchReport) {
-      // Small delay to ensure DOM is ready
       const timer = setTimeout(() => startJumio(), 500);
       return () => clearTimeout(timer);
     }
-  }, [step]); // Only run when entering step 3
+  }, [step]); 
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-800 font-sans selection:bg-green-100">
@@ -186,8 +183,6 @@ export default function App() {
       </header>
       
       <main className="max-w-xl mx-auto p-6 mt-8">
-        
-        {/* --- STEP 1: REGISTER --- */}
         {step === 1 && (
           <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
             <h1 className="text-2xl font-bold mb-6 text-gray-900">Register</h1>
